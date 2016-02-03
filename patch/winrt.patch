@@ -1,0 +1,174 @@
+diff -rupN libzip-1.1/CMakeLists.txt "libzip-1.1 - Copy/CMakeLists.txt"
+--- libzip-1.1/CMakeLists.txt	2016-01-26 06:49:52.000000000 -0800
++++ "libzip-1.1 - Copy/CMakeLists.txt"	2016-02-02 16:44:53.930591300 -0800
+@@ -1,4 +1,4 @@
+-# TODO:
++ # TODO:
+ # 1. pkgconfig file not yet built.
+ # 2. installation not tested.
+ # 3. Problems generating html pages.
+@@ -85,9 +85,14 @@ IF(ZLIB_VERSION_STRING VERSION_LESS "1.1
+ ENDIF(ZLIB_VERSION_STRING VERSION_LESS "1.1.2")
+ 
+ IF(MSVC)
+-ADD_DEFINITIONS("-D_CRT_SECURE_NO_WARNINGS")
++  ADD_DEFINITIONS("-D_CRT_SECURE_NO_WARNINGS -D_CRT_NONSTDC_NO_WARNINGS")
+ ENDIF(MSVC)
+ 
++if(CMAKE_SYSTEM_NAME MATCHES WindowsPhone OR CMAKE_SYSTEM_NAME MATCHES WindowsStore)
++  ADD_DEFINITIONS(-DWINRT)
++endif(CMAKE_SYSTEM_NAME MATCHES WindowsPhone OR CMAKE_SYSTEM_NAME MATCHES WindowsStore)
++
++
+ ADD_DEFINITIONS("-DHAVE_CONFIG_H")
+ 
+ # Targets
+diff -rupN libzip-1.1/lib/CMakeLists.txt "libzip-1.1 - Copy/lib/CMakeLists.txt"
+--- libzip-1.1/lib/CMakeLists.txt	2016-01-06 05:31:28.000000000 -0800
++++ "libzip-1.1 - Copy/lib/CMakeLists.txt"	2016-02-02 16:41:17.909080100 -0800
+@@ -192,6 +192,8 @@ INSTALL(TARGETS zip
+   LIBRARY DESTINATION lib)
+ #CREATE_LIBTOOL_FILE(zip lib)
+ 
++
++
+ #ADD_LIBRARY(zipstatic STATIC ${LIBZIP_SOURCES} ${LIBZIP_EXTRA_FILES} ${LIBZIP_OPSYS_FILES})
+ #SET_TARGET_PROPERTIES(zipstatic PROPERTIES VERSION 3.0 SOVERSION 3 )
+ #TARGET_LINK_LIBRARIES(zipstatic ${ZLIB_LIBRARY})
+diff -rupN libzip-1.1/lib/zip_source_win32a.c "libzip-1.1 - Copy/lib/zip_source_win32a.c"
+--- libzip-1.1/lib/zip_source_win32a.c	2016-01-07 22:59:17.000000000 -0800
++++ "libzip-1.1 - Copy/lib/zip_source_win32a.c"	2016-02-02 16:40:59.113672700 -0800
+@@ -31,7 +31,7 @@ OTHERWISE) ARISING IN ANY WAY OUT OF THE
+ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+ 
+-
++#ifndef WINRT
+ #include <stdio.h>
+ 
+ #include "zipint.h"
+@@ -122,3 +122,6 @@ _win32_remove_a(const void *fname)
+     DeleteFileA((const char *)fname);
+     return 0;
+ }
++
++#endif //WINRT
++
+diff -rupN libzip-1.1/lib/zip_source_win32handle.c "libzip-1.1 - Copy/lib/zip_source_win32handle.c"
+--- libzip-1.1/lib/zip_source_win32handle.c	2016-01-07 22:59:17.000000000 -0800
++++ "libzip-1.1 - Copy/lib/zip_source_win32handle.c"	2016-02-02 14:20:51.723412200 -0800
+@@ -417,12 +417,15 @@ _win32_create_temp_file(_zip_source_win3
+     int i;
+     HANDLE th = INVALID_HANDLE_VALUE;
+     void *temp = NULL;
+-    SECURITY_INFORMATION si;
+-    SECURITY_ATTRIBUTES sa;
+     PSECURITY_DESCRIPTOR psd = NULL;
+     PSECURITY_ATTRIBUTES psa = NULL;
++
++
++#ifndef WINRT
+     DWORD len;
+     BOOL success;
++    SECURITY_ATTRIBUTES sa;
++    SECURITY_INFORMATION si;
+ 
+     /*
+     Read the DACL from the original file, so we can copy it to the temp file.
+@@ -449,6 +452,10 @@ _win32_create_temp_file(_zip_source_win3
+     }
+ 
+     value = GetTickCount();
++#else
++    value = (zip_uint32_t)GetTickCount64();
++#endif
++
+     for (i = 0; i < 1024 && th == INVALID_HANDLE_VALUE; i++) {
+ 	th = ctx->ops->op_create_temp(ctx, &temp, value + i, psa);
+ 	if (th == INVALID_HANDLE_VALUE && GetLastError() != ERROR_FILE_EXISTS)
+diff -rupN libzip-1.1/lib/zip_source_win32w.c "libzip-1.1 - Copy/lib/zip_source_win32w.c"
+--- libzip-1.1/lib/zip_source_win32w.c	2016-01-07 22:59:17.000000000 -0800
++++ "libzip-1.1 - Copy/lib/zip_source_win32w.c"	2016-02-02 14:20:51.725431800 -0800
+@@ -83,7 +83,19 @@ _win32_strdup_w(const void *str)
+ static HANDLE
+ _win32_open_w(_zip_source_win32_read_file_t *ctx)
+ {
++#ifdef WINRT
++    CREATEFILE2_EXTENDED_PARAMETERS extParams = { 0 };
++    extParams.dwFileAttributes = FILE_ATTRIBUTE_NORMAL;
++    extParams.dwFileFlags = FILE_FLAG_RANDOM_ACCESS;
++    extParams.dwSecurityQosFlags = SECURITY_ANONYMOUS;
++    extParams.dwSize = sizeof(extParams);
++    extParams.hTemplateFile = NULL;
++    extParams.lpSecurityAttributes = NULL;
++
++    return CreateFile2(ctx->fname, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, OPEN_EXISTING, &extParams);
++#else
+     return CreateFileW(ctx->fname, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
++#endif
+ }
+ 
+ 
+@@ -103,7 +115,19 @@ _win32_create_temp_w(_zip_source_win32_r
+ 	return INVALID_HANDLE_VALUE;
+     }
+ 
++#ifdef WINRT
++    CREATEFILE2_EXTENDED_PARAMETERS extParams = { 0 };
++    extParams.dwFileAttributes = FILE_ATTRIBUTE_NORMAL | FILE_ATTRIBUTE_TEMPORARY;
++    extParams.dwFileFlags = FILE_FLAG_RANDOM_ACCESS;
++    extParams.dwSecurityQosFlags = SECURITY_ANONYMOUS;
++    extParams.dwSize = sizeof(extParams);
++    extParams.hTemplateFile = NULL;
++    extParams.lpSecurityAttributes = NULL;
++
++    return CreateFile2((const wchar_t *)*temp, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ, CREATE_NEW, &extParams);
++#else
+     return CreateFileW((const wchar_t *)*temp, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ, sa, CREATE_NEW, FILE_ATTRIBUTE_NORMAL | FILE_ATTRIBUTE_TEMPORARY, NULL);
++#endif
+ }
+ 
+ 
+diff -rupN libzip-1.1/lib/zipwin32.h "libzip-1.1 - Copy/lib/zipwin32.h"
+--- libzip-1.1/lib/zipwin32.h	2016-01-07 22:59:29.000000000 -0800
++++ "libzip-1.1 - Copy/lib/zipwin32.h"	2016-02-02 14:20:51.726944500 -0800
+@@ -35,7 +35,10 @@
+ */
+ 
+ /* 0x0501 => Windows XP; needs to be at least this value because of GetFileSizeEx */
++#ifndef WINRT
+ #define _WIN32_WINNT 0x0501
++#endif
++
+ #include <windows.h>
+ 
+ /* context for Win32 source */
+diff -rupN libzip-1.1/src/ziptool.c "libzip-1.1 - Copy/src/ziptool.c"
+--- libzip-1.1/src/ziptool.c	2016-01-22 11:17:02.000000000 -0800
++++ "libzip-1.1 - Copy/src/ziptool.c"	2016-02-02 14:20:51.726944500 -0800
+@@ -43,6 +43,7 @@
+ #ifdef _WIN32
+ /* WIN32 needs <fcntl.h> for _O_BINARY */
+ #include <fcntl.h>
++#include <io.h>
+ #endif
+ 
+ #ifndef HAVE_GETOPT
+@@ -962,7 +963,7 @@ int
+ main(int argc, char *argv[])
+ {
+     const char *archive;
+-    zip_source_t *memory_src;
++    zip_source_t *memory_src = NULL;
+     unsigned int i;
+     int c, arg, err, flags;
+     const char *prg;
+@@ -1010,7 +1011,7 @@ main(int argc, char *argv[])
+ 	default:
+ 	{
+ 	    char reason[128];
+-	    snprintf(reason, sizeof(reason), "invalid option -%c", optopt);
++	    snprintf(reason, sizeof(reason), "invalid option -%c", c);
+ 	    usage(prg, reason);
+ 	}
+ 	}
